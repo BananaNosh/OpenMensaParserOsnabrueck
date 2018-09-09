@@ -1,0 +1,4 @@
+Pyramid
+waitress
+pyramid_debugtoolbar
+pyramid_chameleon
