@@ -1,4 +1,4 @@
-# Copyright 2016 Google Inc.
+# Copyright 2018 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,20 +12,121 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# import webapp2
-#
-#
-# class MainPage(webapp2.RequestHandler):
-#     def get(self):
-#         self.response.headers['Content-Type'] = 'text/plain'
-#         self.response.write('Hello, World!')
-#
-#
-# app = webapp2.WSGIApplication([
-#     ('/', MainPage),
-# ], debug=True)
+# [START gae_python37_app]
+from flask import Flask
+from bs4 import BeautifulSoup
+import requests
+import datetime
+import regex as re
+import unicodedata
+from pyopenmensa import feed as op
 
-from pyramid.paster import get_app, setup_logging
-ini_path = 'production.ini'
-setup_logging(ini_path)
-application = get_app(ini_path, 'main')
+
+class UnexpectedFormatError(AttributeError):
+    pass
+
+
+WARNING = 'No Mensa path!'
+
+
+CATEGORY_KEY = "cat"
+MAIN_MEAL_KEY = "mm"
+ADDITION_KEY = "a"
+PRICE_KEY = "p"
+DATE_KEY = "d"
+STUDENT_KEY = "student"
+EMPLOYEE_KEY = "employee"
+
+MENSAE = ["westerberg", "mschlossg", "mhaste", "mvechta"]
+
+
+def get_meals(_mensa, date=None):
+    result = requests.get(f"https://osnabrueck.my-mensa.de/essen.php?v=5121119&hyp=1&lang=de&mensa={_mensa}")
+    if result.status_code == 200:
+        content = result.content
+    else:
+        raise ConnectionError
+    b_soup = BeautifulSoup(content, "html.parser")
+    print(b_soup.prettify())
+    unparsed_meals = b_soup.find_all(
+        href=lambda href: href and re.compile(f"mensa={_mensa}#{_mensa}_tag_20\d{{3,5}}_essen").search(href))
+    _meals = []
+    for meal in unparsed_meals:
+        category = meal.parent.previous_sibling.previous_sibling.text
+        meal_info = meal.find_all(["h3", "p"])
+        if len(meal_info) != 3:
+            raise UnexpectedFormatError("More than 3 meal info")
+        meal_info = [unicodedata.normalize("NFKD", info.text).replace("\xad", "") for info in meal_info]
+        _main_meal, _additional, price = meal_info
+        price_search = re.compile("((\d+,\d{2})|-)\D*((\d+,\d{2})|-)").search(price)
+        if not price_search:
+            raise UnexpectedFormatError(f"price formation error {price}")
+        try:
+            stud_price_str = price_search.group(2)
+            emp_price_str = price_search.group(4)
+            price = {STUDENT_KEY: float(stud_price_str.replace(",", ".")) if stud_price_str else None,
+                     EMPLOYEE_KEY: float(emp_price_str.replace(",", ".")) if emp_price_str else None}
+        except ValueError:
+            raise UnexpectedFormatError(f"price formation error {price_search.groups()}")
+        date_search = re.compile("tag_(\d{4})(\d{1,3})").search(meal["href"])
+        if not date_search:
+            raise UnexpectedFormatError(f"Date formation error{meal['href']}")
+        try:
+            year, day = [int(group) for group in date_search.groups()]
+        except ValueError:
+            raise UnexpectedFormatError(f"Date formation error {year}, {day}")
+        if date:
+            date_days = (date - datetime.datetime(date.year, 1, 1)).days
+            if date_days != day or year != date.year:
+                continue
+        meal_date = datetime.datetime(year, 1, 1) + datetime.timedelta(day)
+        _meals.append({CATEGORY_KEY: category, MAIN_MEAL_KEY: _main_meal,
+                      ADDITION_KEY: _additional, PRICE_KEY: price, DATE_KEY: meal_date.date()})
+    return _meals
+
+
+def get_total_feed(mensa):
+    canteen = op.LazyBuilder()
+    meals = get_meals(mensa)
+    for meal in meals:
+        main_meal = meal[MAIN_MEAL_KEY]
+        additional = meal[ADDITION_KEY]
+        ing_reg = re.compile("\(((\d+|[a-n])(,(\d+|[a-n]))*)\)")
+        # noinspection PyTypeChecker
+        ingredients_match = ing_reg.findall(main_meal + " " + additional)
+        ingredients = list(set(",".join([ingred[0] for ingred in ingredients_match]).split(",")))
+        ingredients.sort()
+        ingredients = ",".join(ingredients)
+        main_meal = ing_reg.sub("", main_meal)
+        additional = ing_reg.sub("", additional)
+        notes = [note for note in [additional, ingredients] if len(note) > 0]
+        prices = {role: price for role, price in meal[PRICE_KEY].items() if price}
+        canteen.addMeal(meal[DATE_KEY], meal[CATEGORY_KEY], main_meal,
+                        notes if len(notes) > 0 else None, prices)
+    return canteen.toXMLFeed()
+
+
+# If `entrypoint` is not defined in app.yaml, App Engine will look for an app
+# called `app` in `main.py`.
+app = Flask(__name__)
+
+
+@app.route(f'/<mensa>')
+def mensa_feed(mensa):
+    if mensa not in MENSAE:
+        return WARNING
+    return get_total_feed(mensa)
+
+
+@app.route('/')
+def warning():
+    """Return a warning"""
+    return WARNING
+
+
+if __name__ == '__main__':
+    # This is used when running locally only. When deploying to Google App
+    # Engine, a webserver process such as Gunicorn will serve the app. This
+    # can be configured by adding an `entrypoint` to app.yaml.
+    app.run(host='127.0.0.1', port=8080, debug=True)
+# [END gae_python37_app]
