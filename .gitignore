@@ -92,6 +92,7 @@ ENV/
 
 __pycache__/
 cache/
+.pytest_cache/
 
 # Spyder project settings
 .spyderproject

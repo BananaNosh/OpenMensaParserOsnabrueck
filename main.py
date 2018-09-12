@@ -20,6 +20,7 @@ import datetime
 import regex as re
 import unicodedata
 from pyopenmensa import feed as op
+from lxml import etree
 
 
 class UnexpectedFormatError(AttributeError):
@@ -47,7 +48,6 @@ def get_meals(_mensa, date=None):
     else:
         raise ConnectionError
     b_soup = BeautifulSoup(content, "html.parser")
-    print(b_soup.prettify())
     unparsed_meals = b_soup.find_all(
         href=lambda href: href and re.compile(f"mensa={_mensa}#{_mensa}_tag_20\d{{3,5}}_essen").search(href))
     _meals = []
@@ -106,6 +106,30 @@ def get_total_feed(mensa):
     return canteen.toXMLFeed()
 
 
+def validate(xml_data):
+    # with open("open-mensa-v2.xsd", 'r') as schema_file:
+    #     xml_schema_str = schema_file.read()
+    #
+    # xml_schema_doc = etree.parse(StringIO(xml_schema_str))
+    # xml_schema = etree.XMLSchema(StringIO(xml_schema_doc))
+
+    # parse xml
+    try:
+        xml_schema_doc = etree.parse("./open-mensa-v2.xsd")
+        xml_schema = etree.XMLSchema(xml_schema_doc)
+        # doc = etree.parse(xml_data.encode())
+        print('XML well formed, syntax ok.')
+        etree.fromstring(xml_data.encode(), parser=etree.XMLParser(schema=xml_schema))
+        # xml_schema.assertValid(doc)
+        print('XML valid, schema validation ok.')
+    # check for XML syntax errors
+    except etree.XMLSyntaxError as err:
+        raise UnexpectedFormatError(err)
+    except etree.DocumentInvalid as err:
+        print('Schema validation error, see error_schema.log')
+        raise UnexpectedFormatError(err)
+
+
 # If `entrypoint` is not defined in app.yaml, App Engine will look for an app
 # called `app` in `main.py`.
 app = Flask(__name__)
@@ -115,7 +139,9 @@ app = Flask(__name__)
 def mensa_feed(mensa):
     if mensa not in MENSAE:
         return WARNING
-    return get_total_feed(mensa)
+    feed = get_total_feed(mensa)
+    validate(feed)
+    return feed
 
 
 @app.route('/')

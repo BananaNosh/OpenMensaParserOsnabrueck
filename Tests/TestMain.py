@@ -13,12 +13,22 @@
 # limitations under the License.
 
 import main
+import unittest
+from bs4 import BeautifulSoup
 
 
-def test_index():
-    main.app.testing = True
-    client = main.app.test_client()
+class TestMain(unittest.TestCase):
+    def setUp(self):
+        main.app.testing = True
+        self.client = main.app.test_client()
 
-    r = client.get('/')
-    assert r.status_code == 200
-    assert main.WARNING in r.data.decode('utf-8')
+    def test_index(self):
+        r = self.client.get('/')
+        self.assertEquals(200, r.status_code)
+        self.assertEquals(main.WARNING, r.data.decode('utf-8'))
+
+    def test_westerberg(self):
+        r = self.client.get('/westerberg')
+        b_soup = BeautifulSoup(r.data, "lxml")
+        category = b_soup.category
+        self.assertEquals("Hauptgericht HK 2", category.attrs['name'].strip())
