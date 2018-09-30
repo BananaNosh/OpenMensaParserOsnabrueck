@@ -58,16 +58,19 @@ def get_meals(_mensa, date=None):
             raise UnexpectedFormatError("More than 3 meal info")
         meal_info = [unicodedata.normalize("NFKD", info.text).replace("\xad", "") for info in meal_info]
         _main_meal, _additional, price = meal_info
-        price_search = re.compile("((\d+,\d{2})|-)\D*((\d+,\d{2})|-)").search(price)
-        if not price_search:
-            raise UnexpectedFormatError(f"price formation error {price}")
-        try:
-            stud_price_str = price_search.group(2)
-            emp_price_str = price_search.group(4)
-            price = {STUDENT_KEY: float(stud_price_str.replace(",", ".")) if stud_price_str else None,
-                     EMPLOYEE_KEY: float(emp_price_str.replace(",", ".")) if emp_price_str else None}
-        except ValueError:
-            raise UnexpectedFormatError(f"price formation error {price_search.groups()}")
+        if price == "-":
+            price = {}
+        else:
+            price_search = re.compile("((\d+,\d{2})|-)\D*((\d+,\d{2})|-)").search(price)
+            if not price_search:
+                raise UnexpectedFormatError(f"price formation error {price}")
+            try:
+                stud_price_str = price_search.group(2)
+                emp_price_str = price_search.group(4)
+                price = {STUDENT_KEY: float(stud_price_str.replace(",", ".")) if stud_price_str else None,
+                         EMPLOYEE_KEY: float(emp_price_str.replace(",", ".")) if emp_price_str else None}
+            except ValueError:
+                raise UnexpectedFormatError(f"price formation error {price_search.groups()}")
         date_search = re.compile("tag_(\d{4})(\d{1,3})").search(meal["href"])
         if not date_search:
             raise UnexpectedFormatError(f"Date formation error{meal['href']}")
