@@ -148,9 +148,23 @@ def mensa_feed(mensa):
 
 
 @app.route('/')
-def warning():
-    """Return a warning"""
-    return WARNING
+@app.route('/index')
+def mensa_list():
+    mensae = "\n          ".join(["<list-item>" + mensa + "</list-item>" for mensa in MENSAE])
+    response = f"""
+    Status: 404 Not Found
+    Content-Type: application/xml; charset=utf-8
+    
+    '<?xml version="1.0" encoding="UTF-8"?>'
+    <error>
+      <code>404</code>
+        <message>Mensa not found</message>
+        <debug-data>
+        <list-desc>Valid filenames</list-desc>"
+            {mensae}
+        </debug-data>"
+    </error>"""
+    return response
 
 
 if __name__ == '__main__':
